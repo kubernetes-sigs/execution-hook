@@ -1,0 +1,12 @@
+apiVersion: apps.k8s.io/v1alpha1
+kind: ExecutionHook
+metadata:
+  name: unfreeze-hook
+spec:
+  podContainerNamesList:
+    - podName: mysql
+      containerNames: ["mysql"]
+  preAction:
+    action:
+      exec:
+        command: ["run_unfreeze.sh"]

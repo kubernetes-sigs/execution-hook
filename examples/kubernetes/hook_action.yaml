@@ -1,0 +1,9 @@
+apiVersion: apps.k8s.io/v1alpha1
+kind: ExecutionHookTemplate
+metadata:
+  name: new-hook-template
+policy: ExecuteOnce
+preAction:
+  action:
+    exec:
+      command: ["run_quiesce.py"]

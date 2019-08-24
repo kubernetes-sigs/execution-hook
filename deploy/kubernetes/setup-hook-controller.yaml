@@ -1,0 +1,42 @@
+# This YAML file shows how to deploy the ExecutionHook controller
+# It depends on the RBAC rules from rbac.yaml.
+#
+
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: hook
+  labels:
+    app: hook
+spec:
+  selector:
+    app: hook
+  ports:
+    - name: dummy
+      port: 12345
+
+---
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: hook
+spec:
+  serviceName: "hook"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hook
+  template:
+    metadata:
+      labels:
+        app: hook
+    spec:
+      serviceAccount: hook
+      containers:
+        - name: hook
+          image: hook:test
+          args:
+            - "--connection-timeout=15s"
+            - "--v=5"
+          imagePullPolicy: IfNotPresent
