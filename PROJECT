@@ -1,0 +1,7 @@
+domain: k8s.io
+repo: sigs.k8s.io/execution-hook
+resources:
+- group: apps
+  kind: ExecutionHook
+  version: v1alpha1
+version: "2"
