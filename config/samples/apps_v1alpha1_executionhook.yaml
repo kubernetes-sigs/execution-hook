@@ -1,0 +1,11 @@
+apiVersion: apps.k8s.io/v1alpha1
+kind: ExecutionHook
+metadata:
+  name: executionhook-sample
+spec:
+  actionName: hookaction-sample
+  podSelection: 
+    podContainerNamesList:
+    - podName: pod-sample
+      containerNames:
+      - ubuntu
