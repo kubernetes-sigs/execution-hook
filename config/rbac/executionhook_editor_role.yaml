@@ -1,0 +1,26 @@
+# permissions to do edit executionhooks.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: executionhook-editor-role
+rules:
+- apiGroups:
+  - apps.k8s.io
+  resources:
+  - executionhooks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps.k8s.io
+  resources:
+  - executionhooks/status
+  verbs:
+  - get
+  - patch
+  - update
