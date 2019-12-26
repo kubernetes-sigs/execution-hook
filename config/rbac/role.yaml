@@ -9,7 +9,7 @@ rules:
 - apiGroups:
   - apps.k8s.io
   resources:
-  - executionhooks
+  - executionhook
   verbs:
   - create
   - delete
@@ -21,7 +21,7 @@ rules:
 - apiGroups:
   - apps.k8s.io
   resources:
-  - executionhooks/status
+  - executionhook/status
   verbs:
   - get
   - patch

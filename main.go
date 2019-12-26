@@ -23,6 +23,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	appsv1alpha1 "sigs.k8s.io/execution-hook/api/v1alpha1"
 	"sigs.k8s.io/execution-hook/controllers"
@@ -42,11 +43,41 @@ func init() {
 }
 
 func main() {
-	var metricsAddr string
-	var enableLeaderElection bool
-	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "The address the metric endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
-		"Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.")
+	// flag vars
+	var (
+		metricsAddr              string
+		enableLeaderElection     bool
+		concurrentReconcileCount int
+		webhookPort              int
+	)
+
+	flag.StringVar(
+		&metricsAddr,
+		"metrics-addr",
+		":8080", "The address the metric endpoint binds to.",
+	)
+
+	flag.BoolVar(
+		&enableLeaderElection,
+		"enable-leader-election",
+		true,
+		"Enabling this will ensure there is only one active controller manager. True by default.",
+	)
+
+	flag.IntVar(
+		&concurrentReconcileCount,
+		"concurrent-reconciles",
+		1,
+		"Number of execution hooks to process concurrently",
+	)
+
+	flag.IntVar(
+		&webhookPort,
+		"webhook-port",
+		0,
+		"Port at which defaulting and/or validating webhook server servers. Set to 0 to disable. Disabled by default.",
+	)
+
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(func(o *zap.Options) {
@@ -57,7 +88,7 @@ func main() {
 		Scheme:             scheme,
 		MetricsBindAddress: metricsAddr,
 		LeaderElection:     enableLeaderElection,
-		Port:               9443,
+		Port:               webhookPort,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -68,7 +99,7 @@ func main() {
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("controllers").WithName("ExecutionHook"),
 		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	}).SetupWithManager(mgr, controller.Options{MaxConcurrentReconciles: concurrentReconcileCount}); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ExecutionHook")
 		os.Exit(1)
 	}

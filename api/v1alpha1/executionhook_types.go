@@ -1,4 +1,5 @@
 /*
+Copyright 2020 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,8 +20,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+const (
+	ExecutionHookFinalizer = "executionhook.apps.x-k8s.io"
+)
 
 // ExecutionHookSpec defines the desired state of ExecutionHook
 // HookActionName is copied to ExecutionHookSpec by the controller such as
@@ -91,7 +93,7 @@ type ExecutionHookStatus struct {
 	// information about how hook is executed in a container, including pod name,
 	// container name, ActionTimestamp, ActionSucceed, etc.
 	// +optional
-	HookStatuses []ContainerExecutionHookStatus `json:"containerExecutionHookStatuses,omitempty" protobuf:"bytes,1,rep,name=containerExecutionHookStatuses"`
+	HookStatuses []ContainerExecutionHookStatus `json:"hookStatuses,omitempty" protobuf:"bytes,1,rep,name=hookStatuses"`
 }
 
 // ContainerExecutionHookStatus represents the current state of a hook for a specific
@@ -152,8 +154,10 @@ const (
 )
 
 // +kubebuilder:object:root=true
+// +kubebuilder:resource:path=executionhook,shortName=eh,scope=Namespaced,categories=executionhook
+// +kubebuilder:subresource:status
 
-// ExecutionHook is the Schema for the executionhooks API
+// ExecutionHook is the Schema for the executionhook API
 type ExecutionHook struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

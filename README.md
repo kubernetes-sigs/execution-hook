@@ -5,7 +5,7 @@ and an `ExecutionHookController` to manage the hook's lifecycle.
 
 ## Usage
 
-Exection Hook uses the [Kubebuilder framework](https://github.com/kubernetes-sigs/kubebuilder).
+Execution Hook uses the [Kubebuilder framework](https://github.com/kubernetes-sigs/kubebuilder).
 See the [Kubebuilder documentation](https://book.kubebuilder.io/introduction.html) for building, running and testing the project.
 
 ## Community, discussion, contribution, and support

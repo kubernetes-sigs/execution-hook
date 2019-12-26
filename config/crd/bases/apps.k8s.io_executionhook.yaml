@@ -6,18 +6,24 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.2.4
   creationTimestamp: null
-  name: executionhooks.apps.k8s.io
+  name: executionhook.apps.k8s.io
 spec:
   group: apps.k8s.io
   names:
+    categories:
+    - executionhook
     kind: ExecutionHook
     listKind: ExecutionHookList
-    plural: executionhooks
+    plural: executionhook
+    shortNames:
+    - eh
     singular: executionhook
   scope: Namespaced
+  subresources:
+    status: {}
   validation:
     openAPIV3Schema:
-      description: ExecutionHook is the Schema for the executionhooks API
+      description: ExecutionHook is the Schema for the executionhook API
       properties:
         apiVersion:
           description: 'APIVersion defines the versioned schema of this representation
@@ -135,7 +141,7 @@ spec:
         status:
           description: ExecutionHookStatus defines the observed state of ExecutionHook
           properties:
-            containerExecutionHookStatuses:
+            hookStatuses:
               description: This is a list of ContainerExecutionHookStatus, with each
                 status representing information about how hook is executed in a container,
                 including pod name, container name, ActionTimestamp, ActionSucceed,

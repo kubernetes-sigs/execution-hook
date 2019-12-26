@@ -7,7 +7,7 @@ rules:
 - apiGroups:
   - apps.k8s.io
   resources:
-  - executionhooks
+  - executionhook
   verbs:
   - get
   - list
@@ -15,6 +15,6 @@ rules:
 - apiGroups:
   - apps.k8s.io
   resources:
-  - executionhooks/status
+  - executionhook/status
   verbs:
   - get

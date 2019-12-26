@@ -1,45 +1,72 @@
+# Copyright 2018 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
+REGISTRY ?= quay.io/ashish_amarnath
+IMAGE_NAME ?= executionhook-controller
+TAG ?= dev-20191227-02
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+CONTROLLER_IMAGE ?= $(REGISTRY)/$(IMAGE_NAME):$(TAG)
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true"
 
-# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
-ifeq (,$(shell go env GOBIN))
-GOBIN=$(shell go env GOPATH)/bin
-else
-GOBIN=$(shell go env GOBIN)
-endif
+# Directories.
+TOOLS_DIR := hack/tools
+TOOLS_BIN_DIR := $(TOOLS_DIR)/bin
 
+# Tool binaries.
+KUSTOMIZE := $(TOOLS_BIN_DIR)/kustomize
+CONTROLLER_GEN := $(TOOLS_BIN_DIR)/controller-gen
+
+$(CONTROLLER_GEN): $(TOOLS_DIR)/go.mod
+	cd $(TOOLS_DIR); go build -tags=tools -o ./bin/controller-gen sigs.k8s.io/controller-tools/cmd/controller-gen
+
+$(KUSTOMIZE): $(TOOLS_DIR)/go.mod
+	cd $(TOOLS_DIR); go build -tags=tools -o ./bin/kustomize sigs.k8s.io/kustomize/kustomize/v3
+
+.PHONY: all
 all: manager
 
-# Run tests
-test: generate fmt vet manifests
+.PHONY: test
+test: generate fmt vet manifests # Run tests
 	go test ./... -coverprofile cover.out
 
-# Build manager binary
-manager: generate fmt vet
+.PHONY: manager
+manager: generate fmt vet # Build manager binary
 	go build -o bin/manager main.go
 
-# Run against the configured Kubernetes cluster in ~/.kube/config
-run: generate fmt vet manifests
+.PHONY: run
+run: generate fmt vet manifests # Run against the configured Kubernetes cluster in ~/.kube/config
 	go run ./main.go
 
-# Install CRDs into a cluster
-install: manifests
-	kustomize build config/crd | kubectl apply -f -
+.PHONY: install
+install: manifests $(KUSTOMIZE) # Install CRDs into a cluster
+	$(KUSTOMIZE) build config/crd | kubectl apply -f -
 
-# Uninstall CRDs from a cluster
-uninstall: manifests
-	kustomize build config/crd | kubectl delete -f -
+.PHONY: uninstall
+uninstall: manifests $(KUSTOMIZE) # Uninstall CRDs from a cluster
+	$(KUSTOMIZE) build config/crd | kubectl delete -f -
 
+.PHONY: deploy
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
-deploy: manifests
-	cd config/manager && kustomize edit set image controller=${IMG}
-	kustomize build config/default | kubectl apply -f -
+# hacky, works for now. TODO: ashish-amarnath make this better
+deploy: manifests $(KUSTOMIZE)
+	cd config/manager && ../../$(KUSTOMIZE) edit set image controller=${CONTROLLER_IMAGE}
+	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
+.PHONY: manifests
 # Generate manifests e.g. CRD, RBAC etc.
-manifests: controller-gen
+manifests: $(CONTROLLER_GEN)
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
 # Run go fmt against code
@@ -51,30 +78,14 @@ vet:
 	go vet ./...
 
 # Generate code
-generate: controller-gen
+generate: $(CONTROLLER_GEN)
 	$(CONTROLLER_GEN) object:headerFile=./hack/boilerplate.go.txt paths="./..."
 
-# Build the docker image
-docker-build: test
-	docker build . -t ${IMG}
+.PHONY: docker-build
+docker-build: test # Build the controller image
+	docker build . -t ${CONTROLLER_IMAGE}
 
-# Push the docker image
-docker-push:
-	docker push ${IMG}
+.PHONY: docker-push
+docker-push: docker-build # Push the controller image
+	docker push ${CONTROLLER_IMAGE}
 
-# find or download controller-gen
-# download controller-gen if necessary
-controller-gen:
-ifeq (, $(shell which controller-gen))
-	@{ \
-	set -e ;\
-	CONTROLLER_GEN_TMP_DIR=$$(mktemp -d) ;\
-	cd $$CONTROLLER_GEN_TMP_DIR ;\
-	go mod init tmp ;\
-	go get sigs.k8s.io/controller-tools/cmd/controller-gen@v0.2.4 ;\
-	rm -rf $$CONTROLLER_GEN_TMP_DIR ;\
-	}
-CONTROLLER_GEN=$(GOBIN)/controller-gen
-else
-CONTROLLER_GEN=$(shell which controller-gen)
-endif
