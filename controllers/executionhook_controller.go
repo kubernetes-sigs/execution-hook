@@ -21,6 +21,8 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -53,10 +55,18 @@ func ignoreNotFound(err error) error {
 
 // SetupWithManager sets up executionhook controller with a controller manager
 func (r *ExecutionHookReconciler) SetupWithManager(mgr ctrl.Manager, options controller.Options) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	c, err := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(options).
 		For(&appsv1alpha1.ExecutionHook{}).
-		Complete(r)
+		Build(r)
+	if err != nil {
+		return errors.Wrap(err, "failed setting up with a controller manager")
+	}
+
+	r.controller = c
+	r.recorder = mgr.GetEventRecorderFor("execution-hook-controller")
+
+	return nil
 }
 
 // +kubebuilder:rbac:groups=apps.k8s.io,resources=executionhook,verbs=get;list;watch;create;update;patch;delete
@@ -101,55 +111,104 @@ func (r *ExecutionHookReconciler) reconcileHookDeletion(ctx context.Context, hoo
 	log := r.Log.WithValues("executionhook", fmt.Sprintf("%s/%s", hook.Name, hook.Namespace))
 
 	log.Info("Reconciling executionhook delete")
-	// (TODO: ashish-amarnath) if any pending hook actions, return with requeue after 30s
+	// TODO (ashish-amarnath): if any pending hook actions, return with requeue after 30s
 	// else remove ourselves from the finalizers and let the object be reclaimed
 	hook.Finalizers = util.Filter(hook.Finalizers, appsv1alpha1.ExecutionHookFinalizer)
 	return ctrl.Result{}, nil
 }
 
 func (r *ExecutionHookReconciler) reconcile(ctx context.Context, hook *appsv1alpha1.ExecutionHook) (ctrl.Result, error) {
-	log := r.Log.WithValues("executionhook", fmt.Sprintf("%s/%s", hook.Name, hook.Namespace))
+	hookName := fmt.Sprintf("%s/%s", hook.Name, hook.Namespace)
+	actionName := fmt.Sprintf("%s/%s", hook.Namespace, hook.Spec.ActionName)
+	log := r.Log.WithValues("executionhook", hookName, "action", actionName)
 
 	// add ourselves to the finalizer of the ExecutionHook object
 	if !util.Contains(hook.Finalizers, appsv1alpha1.ExecutionHookFinalizer) {
 		hook.Finalizers = append(hook.Finalizers, appsv1alpha1.ExecutionHookFinalizer)
 	}
 
-	log.Info("Fetching", "hook-action", fmt.Sprintf("%s/%s", hook.Namespace, hook.Spec.ActionName))
-	//(TODO: ashish-amarnath) lookup hook action associated with this hook
+	log.Info("Looking up hook-action")
+	//(TODO ashish-amarnath): lookup hook action associated with this hook
 
-	log.Info("Fetching PodContainerNames to execute HookAction", "action", fmt.Sprintf("%s/%s", hook.Namespace, hook.Spec.ActionName))
-	// Find {pod, container} pairs on which to execute hook action
-	podContainerNamesList := hook.Spec.PodSelection.PodContainerNamesList
+	log.Info("Selecting PodContainerNames to run hook-action")
+	podContainerNamesList, err := r.selectPodContainers(hook.Namespace, &hook.Spec.PodSelection)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err,
+			"failed to select podContainerNames to run hook action %s while reconciling execution-hook %s", actionName, hookName)
+	}
 	if len(podContainerNamesList) == 0 {
-		log.Info("Querying PodContainerNames using PodContainerSelector", "selector", hook.Spec.PodSelection.PodContainerSelector)
-		podContainerNamesList = r.podContainerNamesListFromSelector(hook.Spec.PodSelection.PodContainerSelector)
+		log.Info("Nothing to do, PodSelection returned 0 PodContainerNames for execution hook",
+			"podSelection", fmt.Sprintf("[%v]", hook.Spec.PodSelection))
+		return ctrl.Result{}, nil
 	}
 
-	if len(podContainerNamesList) == 0 {
-		return ctrl.Result{},
-			fmt.Errorf("PodSelection [%+v] returned 0 PodContainerNames for execution hook %s/%s with hook action %s/%s",
-				hook.Spec.PodSelection, hook.Namespace, hook.Name, hook.Spec.ActionName, hook.Namespace)
-	}
-
-	log.Info("Running HookAction", "action", fmt.Sprintf("%s/%s", hook.Namespace, hook.Spec.ActionName), "target container count", len(podContainerNamesList))
+	log.Info("Running HookAction", "targetContainerCount", len(podContainerNamesList))
 
 	for _, pc := range podContainerNamesList {
 		r.runHookAction(pc, hook, hook.Spec.ActionName)
 	}
-
-	log.Info("Returning nil error and empty result")
-
 	return ctrl.Result{}, nil
 }
 
+func (r *ExecutionHookReconciler) selectPodContainers(ns string, ps *appsv1alpha1.PodSelection) ([]appsv1alpha1.PodContainerNames, error) {
+	if ps == nil {
+		return nil, errors.Errorf("Cannot use nil podSelection to select podContainers")
+	}
+
+	if ps.PodContainerNamesList != nil && len(ps.PodContainerNamesList) > 0 {
+		return ps.PodContainerNamesList, nil
+	}
+
+	if ps.PodContainerSelector.PodSelector == nil {
+		return []appsv1alpha1.PodContainerNames{}, nil
+	}
+
+	labelSelector, err := metav1.LabelSelectorAsSelector(ps.PodContainerSelector.PodSelector)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to convert labelSelector to type slector")
+	}
+	r.Log.Info("Querying pods matching", "namespace", ns, "label-selector", labelSelector.String())
+	listOpts := &client.ListOptions{
+		LabelSelector: labelSelector,
+	}
+
+	res := []appsv1alpha1.PodContainerNames{}
+	for {
+		podList := corev1.PodList{}
+		err := r.Client.List(context.TODO(), &podList, client.InNamespace(ns), listOpts)
+		if err != nil {
+			errMsg := fmt.Sprintf("failed to list pods in namespace %s matching labelselector %q", ns, labelSelector)
+			return nil, errors.Wrapf(err, errMsg)
+		}
+
+		for _, p := range podList.Items {
+			containers := []string{}
+			for _, c := range p.Spec.Containers {
+				containers = append(containers, c.Name)
+			}
+			pcn := appsv1alpha1.PodContainerNames{
+				PodName:        p.Name,
+				ContainerNames: containers,
+			}
+			res = append(res, pcn)
+		}
+		if podList.Continue == "" {
+			break
+		}
+	}
+
+	return res, nil
+}
+
 func (r *ExecutionHookReconciler) runHookAction(pc appsv1alpha1.PodContainerNames, hook *appsv1alpha1.ExecutionHook, hookAction string) {
-	log := r.Log.WithValues("executionhook", fmt.Sprintf("%s/%s", hook.Namespace, hook.Name), "action", fmt.Sprintf("%s/%s", hook.Namespace, hookAction))
+	hookName := fmt.Sprintf("%s/%s", hook.Name, hook.Namespace)
+	actionName := fmt.Sprintf("%s/%s", hook.Namespace, hook.Spec.ActionName)
+	log := r.Log.WithValues("executionhook", hookName, "action", actionName)
 
 	hookStatuses := []appsv1alpha1.ContainerExecutionHookStatus{}
 	for _, c := range pc.ContainerNames {
-		log.Info("Running hookaction", "pod", pc.PodName, "container", c)
-		// (TODO: ashish-amarnath) run hook action using exec API
+		log.Info("Running hookaction on", "pod", pc.PodName, "container", c)
+		// TODO (ashish-amarnath): run hook action using exec API
 		result := false
 		st := metav1.Now()
 		cs := appsv1alpha1.ContainerExecutionHookStatus{
@@ -163,14 +222,4 @@ func (r *ExecutionHookReconciler) runHookAction(pc appsv1alpha1.PodContainerName
 		hookStatuses = append(hookStatuses, cs)
 	}
 	hook.Status.HookStatuses = hookStatuses
-}
-
-func (r *ExecutionHookReconciler) podContainerNamesListFromSelector(podContainerSelector *appsv1alpha1.PodContainerSelector) []appsv1alpha1.PodContainerNames {
-	if podContainerSelector == nil || podContainerSelector.PodSelector == nil {
-		return []appsv1alpha1.PodContainerNames{}
-	}
-
-	// TODO: query pods using selector and return list of PodContainerNames for matching Pods
-
-	return []appsv1alpha1.PodContainerNames{}
 }

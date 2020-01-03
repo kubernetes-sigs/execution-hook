@@ -44,9 +44,9 @@ type Helper struct {
 
 // Debug method
 func logInterface(r string, l logr.Logger, o map[string]interface{}) {
-	l.Info(r)
+	l.V(8).Info(r)
 	for k, v := range o {
-		l.Info(fmt.Sprintf("%q-> %v", k, v))
+		l.V(8).Info(fmt.Sprintf("%q-> %v", k, v))
 	}
 }
 
@@ -78,7 +78,7 @@ func NewHelper(resource runtime.Object, crClient client.Client) (*Helper, error)
 		return nil, err
 	}
 
-	logger.Info(fmt.Sprintf("beforeStatus: %v", beforeStatus))
+	logger.V(6).Info(fmt.Sprintf("beforeStatus: %v", beforeStatus))
 	if ok {
 		hasStatus = true
 		// if the resource contains a status remove it from our unstructured copy
@@ -100,7 +100,7 @@ func NewHelper(resource runtime.Object, crClient client.Client) (*Helper, error)
 
 // Patch will attempt to patch the given resource and its status
 func (h *Helper) Patch(ctx context.Context, resource runtime.Object) error {
-	h.log.Info("patching", "object", resource.GetObjectKind())
+	h.log.V(6).Info("patching", "object", resource.GetObjectKind())
 	if resource == nil {
 		return errors.Errorf("expected non-nil resource")
 	}
@@ -110,7 +110,7 @@ func (h *Helper) Patch(ctx context.Context, resource runtime.Object) error {
 	// the underlying unstructured object map without making a copy.
 	if _, ok := resource.(runtime.Unstructured); ok {
 		resource = resource.DeepCopyObject()
-		h.log.Info("deepcopied resource")
+		h.log.V(6).Info("deepcopied resource")
 	}
 
 	// Convert the resource to unstructured to compare against our before copy.
@@ -118,7 +118,7 @@ func (h *Helper) Patch(ctx context.Context, resource runtime.Object) error {
 	if err != nil {
 		return err
 	}
-	h.log.Info("converted to unstructured resource")
+	h.log.V(6).Info("converted to unstructured resource")
 	logInterface("after", h.log, after)
 
 	hasStatus := false
@@ -128,14 +128,14 @@ func (h *Helper) Patch(ctx context.Context, resource runtime.Object) error {
 	if err != nil {
 		return err
 	}
-	h.log.Info("copied status to after status")
-	h.log.Info(fmt.Sprintf("afterStatus: %v", afterStatus))
+	h.log.V(6).Info("copied status to after status")
+	h.log.V(6).Info(fmt.Sprintf("afterStatus: %v", afterStatus))
 	if ok {
 		hasStatus = true
 		// if the resource contains a status remove it from our unstructured copy
 		// to avoid unnecessary patching.
 		unstructured.RemoveNestedField(after, "status")
-		h.log.Info("removed status from after status")
+		h.log.V(6).Info("removed status from after status")
 		logInterface("after-status-removed", h.log, after)
 	}
 
@@ -143,18 +143,18 @@ func (h *Helper) Patch(ctx context.Context, resource runtime.Object) error {
 
 	if !reflect.DeepEqual(h.before, after) {
 		// only issue a Patch if the before and after resources (minus status) differ
-		h.log.Info("applying-patch")
+		h.log.V(6).Info("applying-patch")
 		if err := h.client.Patch(ctx, resource.DeepCopyObject(), h.resourcePatch); err != nil {
 			h.log.Error(err, "failed to patch resource")
 			errs = append(errs, err)
 		}
-		h.log.Info("patched resource", "errCount", len(errs))
+		h.log.V(6).Info("patched resource", "errCount", len(errs))
 	}
 
 	if (h.hasStatus || hasStatus) && !reflect.DeepEqual(h.beforeStatus, afterStatus) {
-		h.log.Info("patching resource status")
-		h.log.Info(fmt.Sprintf("beforeStatus: %v", h.beforeStatus))
-		h.log.Info(fmt.Sprintf("afterStatus: %v", afterStatus))
+		h.log.V(6).Info("patching resource status")
+		h.log.V(6).Info(fmt.Sprintf("beforeStatus: %v", h.beforeStatus))
+		h.log.V(6).Info(fmt.Sprintf("afterStatus: %v", afterStatus))
 		// only issue a Status Patch if the resource has a status and the beforeStatus
 		// and afterStatus copies differ
 		if err := h.client.Status().Patch(ctx, resource.DeepCopyObject(), h.statusPatch); err != nil {
@@ -163,7 +163,7 @@ func (h *Helper) Patch(ctx context.Context, resource runtime.Object) error {
 		}
 	}
 
-	h.log.Info("finished patching", "len(errs)", len(errs))
+	h.log.V(6).Info("finished patching", "len(errs)", len(errs))
 
 	return kerrors.NewAggregate(errs)
 }
