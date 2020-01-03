@@ -26,3 +26,31 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - apps.k8s.io
+  resources:
+  - hookaction
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/exec
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

@@ -19,6 +19,8 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -26,10 +28,14 @@ import (
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/execution-hook/controllers/hookactionutil"
 	"sigs.k8s.io/execution-hook/util"
 	"sigs.k8s.io/execution-hook/util/patch"
 
@@ -42,6 +48,7 @@ type ExecutionHookReconciler struct {
 	Log    logr.Logger
 	Scheme *runtime.Scheme
 
+	restConfig *rest.Config
 	controller controller.Controller
 	recorder   record.EventRecorder
 }
@@ -65,12 +72,16 @@ func (r *ExecutionHookReconciler) SetupWithManager(mgr ctrl.Manager, options con
 
 	r.controller = c
 	r.recorder = mgr.GetEventRecorderFor("execution-hook-controller")
+	r.restConfig = mgr.GetConfig()
 
 	return nil
 }
 
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=pods/exec,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps.k8s.io,resources=executionhook,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps.k8s.io,resources=executionhook/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=apps.k8s.io,resources=hookaction,verbs=get;list;watch
 
 func (r *ExecutionHookReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr error) {
 	ctx := context.Background()
@@ -118,7 +129,7 @@ func (r *ExecutionHookReconciler) reconcileHookDeletion(ctx context.Context, hoo
 }
 
 func (r *ExecutionHookReconciler) reconcile(ctx context.Context, hook *appsv1alpha1.ExecutionHook) (ctrl.Result, error) {
-	hookName := fmt.Sprintf("%s/%s", hook.Name, hook.Namespace)
+	hookName := fmt.Sprintf("%s/%s", hook.Namespace, hook.Name)
 	actionName := fmt.Sprintf("%s/%s", hook.Namespace, hook.Spec.ActionName)
 	log := r.Log.WithValues("executionhook", hookName, "action", actionName)
 
@@ -128,13 +139,18 @@ func (r *ExecutionHookReconciler) reconcile(ctx context.Context, hook *appsv1alp
 	}
 
 	log.Info("Looking up hook-action")
-	//(TODO ashish-amarnath): lookup hook action associated with this hook
+	hookAction := &appsv1alpha1.HookAction{}
+	err := r.Client.Get(ctx, types.NamespacedName{
+		Namespace: hook.Namespace, Name: hook.Spec.ActionName,
+	}, hookAction)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed to get hookaction %s", actionName)
+	}
 
 	log.Info("Selecting PodContainerNames to run hook-action")
 	podContainerNamesList, err := r.selectPodContainers(hook.Namespace, &hook.Spec.PodSelection)
 	if err != nil {
-		return ctrl.Result{}, errors.Wrapf(err,
-			"failed to select podContainerNames to run hook action %s while reconciling execution-hook %s", actionName, hookName)
+		return ctrl.Result{}, errors.Wrapf(err, "selecting podContainerNames failed for executionhook %s", hookName)
 	}
 	if len(podContainerNamesList) == 0 {
 		log.Info("Nothing to do, PodSelection returned 0 PodContainerNames for execution hook",
@@ -142,10 +158,28 @@ func (r *ExecutionHookReconciler) reconcile(ctx context.Context, hook *appsv1alp
 		return ctrl.Result{}, nil
 	}
 
+	kubeClient, err := kubernetes.NewForConfig(r.restConfig)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed to instantiate kubernetes clientset to run hook action")
+	}
+
 	log.Info("Running HookAction", "targetContainerCount", len(podContainerNamesList))
 
+	// TODO (ashish-amarnath) filter podContainerNames that already have a success status.
+	// If all podContainerNames have a success status, delete this ExecutionHook or mark for deletion
+
+	var aggErrs []error
 	for _, pc := range podContainerNamesList {
-		r.runHookAction(pc, hook, hook.Spec.ActionName)
+		err := r.runHookAction(pc, hook, hookAction, kubeClient)
+		if err != nil {
+			aggErrs = append(aggErrs, err)
+			log.Error(err, "failed to run executionhook", "pod", pc.PodName, "containers", fmt.Sprintf("[%s]", strings.Join(pc.ContainerNames, ";")))
+		}
+	}
+
+	if len(aggErrs) > 0 {
+		return ctrl.Result{RequeueAfter: 30 * time.Second},
+			errors.Errorf("one or more failures detected running executionhook %s. Retrying after 30s", hookName)
 	}
 	return ctrl.Result{}, nil
 }
@@ -200,15 +234,20 @@ func (r *ExecutionHookReconciler) selectPodContainers(ns string, ps *appsv1alpha
 	return res, nil
 }
 
-func (r *ExecutionHookReconciler) runHookAction(pc appsv1alpha1.PodContainerNames, hook *appsv1alpha1.ExecutionHook, hookAction string) {
+func (r *ExecutionHookReconciler) runHookAction(pc appsv1alpha1.PodContainerNames, hook *appsv1alpha1.ExecutionHook,
+	hookAction *appsv1alpha1.HookAction, kubeClient kubernetes.Interface) error {
 	hookName := fmt.Sprintf("%s/%s", hook.Name, hook.Namespace)
 	actionName := fmt.Sprintf("%s/%s", hook.Namespace, hook.Spec.ActionName)
 	log := r.Log.WithValues("executionhook", hookName, "action", actionName)
 
+	if kubeClient == nil {
+		return errors.Errorf("unable to run executionhook %s, hook action %s with a nil kubernetes clientset", hookName, actionName)
+	}
+
 	hookStatuses := []appsv1alpha1.ContainerExecutionHookStatus{}
 	for _, c := range pc.ContainerNames {
 		log.Info("Running hookaction on", "pod", pc.PodName, "container", c)
-		// TODO (ashish-amarnath): run hook action using exec API
+		hookactionutil.ExecuteActionCommand(hookAction.Action.Exec, hook.Namespace, pc.PodName, c, hookName, actionName, kubeClient, r.Log)
 		result := false
 		st := metav1.Now()
 		cs := appsv1alpha1.ContainerExecutionHookStatus{
@@ -222,4 +261,5 @@ func (r *ExecutionHookReconciler) runHookAction(pc appsv1alpha1.PodContainerName
 		hookStatuses = append(hookStatuses, cs)
 	}
 	hook.Status.HookStatuses = hookStatuses
+	return nil
 }
