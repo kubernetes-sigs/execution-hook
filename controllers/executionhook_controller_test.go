@@ -147,7 +147,7 @@ var _ = Describe("selectPodContainers", func() {
 			Expect(actual).To(BeEmpty())
 
 		})
-		It("should return pod with multiple containers matching labelSelector with MatchLables only", func() {
+		It("should return pod matching labelSelector with MatchLables only with all containers", func() {
 			// setup test pods
 			objs := getTestPods()
 
@@ -184,7 +184,7 @@ var _ = Describe("selectPodContainers", func() {
 			Expect(podContainers).To(BeEquivalentTo(expected))
 		})
 
-		It("Should return pod with multiple containers matching labelSelector with MatchLables and MatchExpressions", func() {
+		It("Should return pod matching labelSelector with MatchLables and MatchExpressions with all containers", func() {
 			objs := getTestPods()
 			r := &ExecutionHookReconciler{
 				Client: fake.NewFakeClient(objs...),
@@ -214,6 +214,83 @@ var _ = Describe("selectPodContainers", func() {
 			expected := []appsv1alpha1.PodContainerNames{
 				{PodName: "app1-1",
 					ContainerNames: []string{"my-awesome-app", "auth-proxy", "metrics-proxy", "rbac-proxy"}},
+			}
+
+			Expect(err).To(BeNil())
+			Expect(podContainers).To(BeEquivalentTo(expected))
+		})
+
+		It("should return pod matching labelSelector with MatchLables only with specific containers", func() {
+			// setup test pods
+			objs := getTestPods()
+
+			r := &ExecutionHookReconciler{
+				Client: fake.NewFakeClient(objs...),
+				Log:    log.Log,
+			}
+
+			podSelector := appsv1alpha1.PodSelection{
+				PodContainerNamesList: nil,
+				PodContainerSelector: &appsv1alpha1.PodContainerSelector{
+					PodSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app":   "app1",
+							"owner": "admin",
+						},
+					},
+					ContainerList: []string{"my-awesome-app"},
+				},
+			}
+
+			podContainers, err := r.selectPodContainers("test-ns", &podSelector)
+			expected := []appsv1alpha1.PodContainerNames{
+				{
+					PodName:        "app1-1",
+					ContainerNames: []string{"my-awesome-app"},
+				},
+				{
+					PodName:        "app1-2",
+					ContainerNames: []string{"my-awesome-app"},
+				},
+			}
+
+			Expect(err).To(BeNil())
+			Expect(podContainers).To(BeEquivalentTo(expected))
+		})
+
+		It("Should return pod matching labelSelector with MatchLables and MatchExpressions with specific containers", func() {
+			objs := getTestPods()
+			r := &ExecutionHookReconciler{
+				Client: fake.NewFakeClient(objs...),
+				Log:    log.Log,
+			}
+
+			podSelector := appsv1alpha1.PodSelection{
+				PodContainerNamesList: nil,
+				PodContainerSelector: &appsv1alpha1.PodContainerSelector{
+					PodSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app":   "app1",
+							"owner": "admin",
+						},
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "environment",
+								Operator: metav1.LabelSelectorOpNotIn,
+								Values:   []string{"test", "staging"},
+							},
+						},
+					},
+					ContainerList: []string{"my-awesome-app"},
+				},
+			}
+
+			podContainers, err := r.selectPodContainers("test-ns", &podSelector)
+			expected := []appsv1alpha1.PodContainerNames{
+				{
+					PodName:        "app1-1",
+					ContainerNames: []string{"my-awesome-app"},
+				},
 			}
 
 			Expect(err).To(BeNil())

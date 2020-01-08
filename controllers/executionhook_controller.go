@@ -29,14 +29,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/execution-hook/controllers/hookactionutil"
 	"sigs.k8s.io/execution-hook/util"
+	"sigs.k8s.io/execution-hook/util/hookactionrunner"
 	"sigs.k8s.io/execution-hook/util/patch"
 
 	appsv1alpha1 "sigs.k8s.io/execution-hook/api/v1alpha1"
@@ -158,11 +157,6 @@ func (r *ExecutionHookReconciler) reconcile(ctx context.Context, hook *appsv1alp
 		return ctrl.Result{}, nil
 	}
 
-	kubeClient, err := kubernetes.NewForConfig(r.restConfig)
-	if err != nil {
-		return ctrl.Result{}, errors.Wrapf(err, "failed to instantiate kubernetes clientset to run hook action")
-	}
-
 	log.Info("Running HookAction", "targetContainerCount", len(podContainerNamesList))
 
 	// TODO (ashish-amarnath) filter podContainerNames that already have a success status.
@@ -170,7 +164,7 @@ func (r *ExecutionHookReconciler) reconcile(ctx context.Context, hook *appsv1alp
 
 	var aggErrs []error
 	for _, pc := range podContainerNamesList {
-		err := r.runHookAction(pc, hook, hookAction, kubeClient)
+		err := r.runHookAction(pc, hook, hookAction)
 		if err != nil {
 			aggErrs = append(aggErrs, err)
 			log.Error(err, "failed to run executionhook", "pod", pc.PodName, "containers", fmt.Sprintf("[%s]", strings.Join(pc.ContainerNames, ";")))
@@ -201,7 +195,7 @@ func (r *ExecutionHookReconciler) selectPodContainers(ns string, ps *appsv1alpha
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert labelSelector to type slector")
 	}
-	r.Log.Info("Querying pods matching", "namespace", ns, "label-selector", labelSelector.String())
+	r.Log.Info("Selecting matching pods", "namespace", ns, "label-selector", labelSelector.String())
 	listOpts := &client.ListOptions{
 		LabelSelector: labelSelector,
 	}
@@ -217,8 +211,14 @@ func (r *ExecutionHookReconciler) selectPodContainers(ns string, ps *appsv1alpha
 
 		for _, p := range podList.Items {
 			containers := []string{}
-			for _, c := range p.Spec.Containers {
-				containers = append(containers, c.Name)
+			if len(ps.PodContainerSelector.ContainerList) > 0 {
+				for _, c := range ps.PodContainerSelector.ContainerList {
+					containers = append(containers, c)
+				}
+			} else {
+				for _, c := range p.Spec.Containers {
+					containers = append(containers, c.Name)
+				}
 			}
 			pcn := appsv1alpha1.PodContainerNames{
 				PodName:        p.Name,
@@ -235,19 +235,29 @@ func (r *ExecutionHookReconciler) selectPodContainers(ns string, ps *appsv1alpha
 }
 
 func (r *ExecutionHookReconciler) runHookAction(pc appsv1alpha1.PodContainerNames, hook *appsv1alpha1.ExecutionHook,
-	hookAction *appsv1alpha1.HookAction, kubeClient kubernetes.Interface) error {
+	hookAction *appsv1alpha1.HookAction) error {
 	hookName := fmt.Sprintf("%s/%s", hook.Name, hook.Namespace)
 	actionName := fmt.Sprintf("%s/%s", hook.Namespace, hook.Spec.ActionName)
 	log := r.Log.WithValues("executionhook", hookName, "action", actionName)
 
-	if kubeClient == nil {
-		return errors.Errorf("unable to run executionhook %s, hook action %s with a nil kubernetes clientset", hookName, actionName)
+	// Currently support for ExecAction is available
+	hookRunner := hookactionrunner.ExecActionRunner{
+		Namespace:  hook.Namespace,
+		HookName:   hookName,
+		ActionName: actionName,
+		Action:     hookAction.Action.Exec,
+		RestConfig: r.restConfig,
+		Log:        r.Log,
 	}
 
 	hookStatuses := []appsv1alpha1.ContainerExecutionHookStatus{}
 	for _, c := range pc.ContainerNames {
 		log.Info("Running hookaction on", "pod", pc.PodName, "container", c)
-		hookactionutil.ExecuteActionCommand(hookAction.Action.Exec, hook.Namespace, pc.PodName, c, hookName, actionName, kubeClient, r.Log)
+		hookRunner.Pod = pc.PodName
+		hookRunner.Container = c
+		// TODO (ashish-amarnath): use the error returned to populate executionhook status
+		_ = hookRunner.Run()
+
 		result := false
 		st := metav1.Now()
 		cs := appsv1alpha1.ContainerExecutionHookStatus{
