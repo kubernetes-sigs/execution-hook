@@ -143,7 +143,7 @@ func (r *ExecutionHookReconciler) reconcile(ctx context.Context, hook *appsv1alp
 		Namespace: hook.Namespace, Name: hook.Spec.ActionName,
 	}, hookAction)
 	if err != nil {
-		return ctrl.Result{}, errors.Wrapf(err, "failed to get hookaction %s", actionName)
+		return ctrl.Result{}, errors.Wrapf(err, "failed to get hook-action %s", actionName)
 	}
 
 	log.Info("Selecting PodContainerNames to run hook-action")
@@ -157,13 +157,17 @@ func (r *ExecutionHookReconciler) reconcile(ctx context.Context, hook *appsv1alp
 		return ctrl.Result{}, nil
 	}
 
-	log.Info("Running HookAction", "targetContainerCount", len(podContainerNamesList))
+	log.Info("Selected PodContainerNames for hook-action execution", "slectedCount", len(podContainerNamesList))
 
-	// TODO (ashish-amarnath) filter podContainerNames that already have a success status.
-	// If all podContainerNames have a success status, delete this ExecutionHook or mark for deletion
+	filtered := r.filterSucceeded(hook, podContainerNamesList)
+	if len(filtered) == 0 {
+		log.Info("Nothing to do, HookAction has been successful on all podContainerNames.")
+		return ctrl.Result{}, nil
+	}
+	log.Info("Filtered successful podContainerNames from selected pods", "filteredPodContainerCount", len(filtered))
 
 	var aggErrs []error
-	for _, pc := range podContainerNamesList {
+	for _, pc := range filtered {
 		err := r.runHookAction(pc, hook, hookAction)
 		if err != nil {
 			aggErrs = append(aggErrs, err)
@@ -234,6 +238,38 @@ func (r *ExecutionHookReconciler) selectPodContainers(ns string, ps *appsv1alpha
 	return res, nil
 }
 
+func (r *ExecutionHookReconciler) getSucceededPodContainers(hook *appsv1alpha1.ExecutionHook) []string {
+	pcStatusMap := []string{}
+	if hook == nil || hook.Status.HookStatuses == nil || len(hook.Status.HookStatuses) == 0 {
+		return pcStatusMap
+	}
+
+	for _, pcs := range hook.Status.HookStatuses {
+		if *pcs.Succeed {
+			pcStatusMap = append(pcStatusMap, fmt.Sprintf("%s/%s", pcs.PodName, pcs.ContainerName))
+		}
+	}
+	return pcStatusMap
+}
+
+func (r *ExecutionHookReconciler) filterSucceeded(hook *appsv1alpha1.ExecutionHook, pcs []appsv1alpha1.PodContainerNames) []appsv1alpha1.PodContainerNames {
+	filtered := []appsv1alpha1.PodContainerNames{}
+	succeededPodContainerNames := r.getSucceededPodContainers(hook)
+	for _, pcn := range pcs {
+		containers := pcn.ContainerNames
+		for _, c := range pcn.ContainerNames {
+			if util.Contains(succeededPodContainerNames, fmt.Sprintf("%s/%s", pcn.PodName, c)) {
+				containers = util.Filter(containers, c)
+			}
+		}
+		if len(containers) > 0 {
+			pcn.ContainerNames = containers
+			filtered = append(filtered, pcn)
+		}
+	}
+	return filtered
+}
+
 func (r *ExecutionHookReconciler) runHookAction(pc appsv1alpha1.PodContainerNames, hook *appsv1alpha1.ExecutionHook,
 	hookAction *appsv1alpha1.HookAction) error {
 	hookName := fmt.Sprintf("%s/%s", hook.Name, hook.Namespace)
@@ -252,7 +288,7 @@ func (r *ExecutionHookReconciler) runHookAction(pc appsv1alpha1.PodContainerName
 
 	hookStatuses := []appsv1alpha1.ContainerExecutionHookStatus{}
 	for _, c := range pc.ContainerNames {
-		log.Info("Running hookaction on", "pod", pc.PodName, "container", c)
+		log.Info("Running hook-action on", "pod", pc.PodName, "container", c)
 		hookRunner.Pod = pc.PodName
 		hookRunner.Container = c
 		// TODO (ashish-amarnath): use the error returned to populate executionhook status

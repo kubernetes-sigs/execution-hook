@@ -341,3 +341,229 @@ var _ = Describe("selectPodContainers", func() {
 		})
 	})
 })
+
+var _ = Describe("getSucceededPodContainers", func() {
+	BeforeEach(func() {})
+	AfterEach(func() {})
+	r := &ExecutionHookReconciler{
+		Client: k8sClient,
+		Log:    log.Log,
+	}
+
+	t := true
+	f := false
+
+	Context("From ExecutionHook.Status, get podContainerNames on which hookaction has completed successfully", func() {
+		It("should return empty result when hook is nil", func() {
+			actual := r.getSucceededPodContainers(nil)
+
+			Expect(actual).To(BeEmpty())
+		})
+
+		It("should return empty result when ExecutionHook.Status.HookStatuses is nil", func() {
+			actual := r.getSucceededPodContainers(&appsv1alpha1.ExecutionHook{
+				Status: appsv1alpha1.ExecutionHookStatus{
+					HookStatuses: nil,
+				},
+			})
+			Expect(actual).To(BeEmpty())
+		})
+	})
+
+	It("should return empty result when ExecutionHook.Status.HookStatuses is empty", func() {
+		actual := r.getSucceededPodContainers(&appsv1alpha1.ExecutionHook{
+			Status: appsv1alpha1.ExecutionHookStatus{
+				HookStatuses: []appsv1alpha1.ContainerExecutionHookStatus{},
+			},
+		})
+		Expect(actual).To(BeEmpty())
+	})
+
+	It("should return only those podContainerNames that have run the hook-action successfully", func() {
+		testExecutionHook := appsv1alpha1.ExecutionHook{
+			Status: appsv1alpha1.ExecutionHookStatus{
+				HookStatuses: []appsv1alpha1.ContainerExecutionHookStatus{
+					{
+						PodName:       "super-useful-app",
+						ContainerName: "app",
+						Succeed:       &t,
+					},
+					{
+						PodName:       "super-useful-app",
+						ContainerName: "auth-proxy",
+						Succeed:       &f,
+					},
+					{
+						PodName:       "super-useful-app",
+						ContainerName: "metric-proxy",
+						Succeed:       &f,
+					},
+					{
+						PodName:       "somewhat-useful-app",
+						ContainerName: "app",
+						Succeed:       &t,
+					},
+					{
+						PodName:       "somewhat-useful-app",
+						ContainerName: "auth-proxy",
+						Succeed:       &f,
+					},
+					{
+						PodName:       "somewhat-useful-app",
+						ContainerName: "metric-proxy",
+						Succeed:       &f,
+					},
+				},
+			},
+		}
+		expected := []string{"super-useful-app/app", "somewhat-useful-app/app"}
+		actual := r.getSucceededPodContainers(&testExecutionHook)
+		Expect(actual).To(BeEquivalentTo(expected))
+	})
+})
+
+var _ = Describe("filterSucceeded", func() {
+	BeforeEach(func() {})
+	AfterEach(func() {})
+	r := &ExecutionHookReconciler{
+		Client: k8sClient,
+		Log:    log.Log,
+	}
+
+	t := true
+	f := false
+
+	testExecutionHook := appsv1alpha1.ExecutionHook{
+		Status: appsv1alpha1.ExecutionHookStatus{
+			HookStatuses: []appsv1alpha1.ContainerExecutionHookStatus{
+				{
+					PodName:       "super-useful-app",
+					ContainerName: "app",
+					Succeed:       &t,
+				},
+				{
+					PodName:       "super-useful-app",
+					ContainerName: "auth-proxy",
+					Succeed:       &f,
+				},
+				{
+					PodName:       "super-useful-app",
+					ContainerName: "metric-proxy",
+					Succeed:       &f,
+				},
+				{
+					PodName:       "somewhat-useful-app",
+					ContainerName: "app",
+					Succeed:       &t,
+				},
+				{
+					PodName:       "somewhat-useful-app",
+					ContainerName: "auth-proxy",
+					Succeed:       &f,
+				},
+				{
+					PodName:       "somewhat-useful-app",
+					ContainerName: "metric-proxy",
+					Succeed:       &f,
+				},
+			},
+		},
+	}
+
+	Context("Filter succeededPodContainerNames", func() {
+		It("should return empty result when selectedPodContainerNames is empty", func() {
+			actual := r.filterSucceeded(&testExecutionHook, []appsv1alpha1.PodContainerNames{})
+			Expect(actual).To(BeEmpty())
+		})
+
+		It("should return correct result when all podContainerNames have a success status", func() {
+			allSuccessExecutionHook := appsv1alpha1.ExecutionHook{
+				Status: appsv1alpha1.ExecutionHookStatus{
+					HookStatuses: []appsv1alpha1.ContainerExecutionHookStatus{
+						{
+							PodName:       "super-useful-app",
+							ContainerName: "app",
+							Succeed:       &t,
+						},
+						{
+							PodName:       "somewhat-useful-app",
+							ContainerName: "app",
+							Succeed:       &t,
+						},
+					},
+				},
+			}
+			selectedPodContainerNames := []appsv1alpha1.PodContainerNames{
+				{
+					PodName:        "super-useful-app",
+					ContainerNames: []string{"app"},
+				},
+				{
+					PodName:        "somewhat-useful-app",
+					ContainerNames: []string{"app"},
+				},
+			}
+			actual := r.filterSucceeded(&allSuccessExecutionHook, selectedPodContainerNames)
+			Expect(actual).To(BeEmpty())
+		})
+
+		It("should return correct result when all podContainerNames have a failed status", func() {
+
+			allFailsExecutionHook := appsv1alpha1.ExecutionHook{
+				Status: appsv1alpha1.ExecutionHookStatus{
+					HookStatuses: []appsv1alpha1.ContainerExecutionHookStatus{
+						{
+							PodName:       "super-useful-app",
+							ContainerName: "app",
+							Succeed:       &f,
+						},
+						{
+							PodName:       "somewhat-useful-app",
+							ContainerName: "app",
+							Succeed:       &f,
+						},
+					},
+				},
+			}
+			selectedPodContainerNames := []appsv1alpha1.PodContainerNames{
+				{
+					PodName:        "super-useful-app",
+					ContainerNames: []string{"app"},
+				},
+				{
+					PodName:        "somewhat-useful-app",
+					ContainerNames: []string{"app"},
+				},
+			}
+
+			actual := r.filterSucceeded(&allFailsExecutionHook, selectedPodContainerNames)
+			Expect(actual).To(BeEquivalentTo(selectedPodContainerNames))
+		})
+
+		It("should return only those podContainerNames that have a failed status", func() {
+			selectedPodContainerNames := []appsv1alpha1.PodContainerNames{
+				{
+					PodName:        "super-useful-app",
+					ContainerNames: []string{"app", "auth-proxy", "metric-proxy"},
+				},
+				{
+					PodName:        "somewhat-useful-app",
+					ContainerNames: []string{"app", "auth-proxy", "metric-proxy"},
+				},
+			}
+
+			expected := []appsv1alpha1.PodContainerNames{
+				{
+					PodName:        "super-useful-app",
+					ContainerNames: []string{"auth-proxy", "metric-proxy"},
+				},
+				{
+					PodName:        "somewhat-useful-app",
+					ContainerNames: []string{"auth-proxy", "metric-proxy"},
+				},
+			}
+			actual := r.filterSucceeded(&testExecutionHook, selectedPodContainerNames)
+			Expect(actual).To(BeEquivalentTo(expected))
+		})
+	})
+})
