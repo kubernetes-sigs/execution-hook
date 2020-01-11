@@ -182,6 +182,14 @@ func (r *ExecutionHookReconciler) reconcile(ctx context.Context, hook *appsv1alp
 	return ctrl.Result{}, nil
 }
 
+func getPodContainerNames(p corev1.Pod) []string {
+	containers := []string{}
+	for _, c := range p.Spec.Containers {
+		containers = append(containers, c.Name)
+	}
+	return containers
+}
+
 func (r *ExecutionHookReconciler) selectPodContainers(ns string, ps *appsv1alpha1.PodSelection) ([]appsv1alpha1.PodContainerNames, error) {
 	if ps == nil {
 		return nil, errors.Errorf("Cannot use nil podSelection to select podContainers")
@@ -215,14 +223,22 @@ func (r *ExecutionHookReconciler) selectPodContainers(ns string, ps *appsv1alpha
 
 		for _, p := range podList.Items {
 			containers := []string{}
+			podContainers := getPodContainerNames(p)
 			if len(ps.PodContainerSelector.ContainerList) > 0 {
 				for _, c := range ps.PodContainerSelector.ContainerList {
-					containers = append(containers, c)
+					if util.Contains(podContainers, c) {
+						containers = append(containers, c)
+					} else {
+						r.Log.Info("pod does not have container", "pod", p.Name, "container", c)
+					}
 				}
 			} else {
 				for _, c := range p.Spec.Containers {
 					containers = append(containers, c.Name)
 				}
+			}
+			if len(containers) == 0 {
+				continue
 			}
 			pcn := appsv1alpha1.PodContainerNames{
 				PodName:        p.Name,

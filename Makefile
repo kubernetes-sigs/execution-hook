@@ -50,7 +50,7 @@ all: manager
 
 .PHONY: test
 test: generate fmt vet manifests ## Run tests
-	go test ./... -coverprofile cover.out
+	go test -v ./... -coverprofile cover.out
 
 .PHONY: manager
 manager: generate fmt vet test ## Build manager binary
