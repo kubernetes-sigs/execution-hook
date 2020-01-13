@@ -1,0 +1,9 @@
+apiVersion: apps.k8s.io/v1alpha1
+kind: HookAction
+metadata:
+  name: hookaction-sample
+action:
+  exec:
+    command: 
+      - cat
+      - /etc/resolv.conf
