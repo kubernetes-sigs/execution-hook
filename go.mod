@@ -3,15 +3,21 @@ module sigs.k8s.io/execution-hook
 go 1.13
 
 require (
-	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751 // indirect
-	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d // indirect
 	github.com/go-logr/logr v0.1.0
-	github.com/onsi/ginkgo v1.8.0
-	github.com/onsi/gomega v1.5.0
-	github.com/prometheus/common v0.0.0-20181126121408-4724e9255275
-	gopkg.in/alecthomas/kingpin.v2 v2.2.6 // indirect
-	k8s.io/apimachinery v0.0.0-20191028221656-72ed19daf4bb
-	k8s.io/client-go v0.0.0-20190918160344-1fbdaa4c8d90
+	github.com/golang/groupcache v0.0.0-20190129154638-5b532d6fd5ef // indirect
+	github.com/imdario/mergo v0.3.7 // indirect
+	github.com/onsi/ginkgo v1.10.1
+	github.com/onsi/gomega v1.7.0
+	github.com/pkg/errors v0.8.1
+	github.com/prometheus/client_golang v1.0.0 // indirect
+	go.uber.org/atomic v1.4.0 // indirect
+	go.uber.org/zap v1.10.0 // indirect
+	golang.org/x/crypto v0.0.0-20190923035154-9ee001bba392 // indirect
+	golang.org/x/sys v0.0.0-20191105231009-c1f44814a5cd // indirect
+	gopkg.in/yaml.v2 v2.2.5 // indirect
+	k8s.io/api v0.17.0
+	k8s.io/apiextensions-apiserver v0.0.0-20190918201827-3de75813f604 // indirect
+	k8s.io/apimachinery v0.17.0
+	k8s.io/client-go v0.17.0
 	sigs.k8s.io/controller-runtime v0.4.0
-	sigs.k8s.io/kind v0.6.1 // indirect
 )

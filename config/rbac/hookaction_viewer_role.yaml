@@ -1,13 +1,13 @@
-# permissions to do viewer executionhooks.
+# permissions to do viewer hookactions.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: executionhook-viewer-role
+  name: hookaction-viewer-role
 rules:
 - apiGroups:
   - apps.k8s.io
   resources:
-  - executionhook
+  - hookactions
   verbs:
   - get
   - list
@@ -15,6 +15,6 @@ rules:
 - apiGroups:
   - apps.k8s.io
   resources:
-  - executionhook/status
+  - hookactions/status
   verbs:
   - get
