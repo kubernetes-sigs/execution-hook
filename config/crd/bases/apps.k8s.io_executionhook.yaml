@@ -1,0 +1,211 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.2.4
+  creationTimestamp: null
+  name: executionhook.apps.k8s.io
+spec:
+  group: apps.k8s.io
+  names:
+    categories:
+    - executionhook
+    kind: ExecutionHook
+    listKind: ExecutionHookList
+    plural: executionhook
+    shortNames:
+    - eh
+    singular: executionhook
+  scope: Namespaced
+  subresources:
+    status: {}
+  validation:
+    openAPIV3Schema:
+      description: ExecutionHook is the Schema for the executionhook API
+      properties:
+        apiVersion:
+          description: 'APIVersion defines the versioned schema of this representation
+            of an object. Servers should convert recognized schemas to the latest
+            internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          type: string
+        kind:
+          description: 'Kind is a string value representing the REST resource this
+            object represents. Servers may infer this from the endpoint the client
+            submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          type: string
+        metadata:
+          description: Metadata associated with persisted resources
+          type: object
+        spec:
+          description: ExecutionHookSpec defines the desired state of ExecutionHook
+          properties:
+            actionName:
+              description: Name of the HookAction. This is required.
+              type: string
+            podSelection:
+              description: PodSelection defines how to select pods and containers
+                to run the executionhook. If multiple pod/containers are selected,
+                the action will executed on them asynchronously. If execution ordering
+                is required, caller has to implement the logic and create different
+                hooks in order. This field is required.
+              properties:
+                podContainerNamesList:
+                  description: PodContainerNamesList lists the pods/containers on
+                    which the ExecutionHook should be executed. If not specified,
+                    the ExecutionHook controller will find all pods and containers
+                    based on PodContainerSelector. If both PodContainerNamesList and
+                    PodContainerSelector are not specified, the ExecutionHook cannot
+                    be executed and it will fail.
+                  items:
+                    description: PodContainerNames lists the containers the ExecutionHook
+                      should be executed on in a Pod.
+                    properties:
+                      containerNames:
+                        description: If empty, hook action will be executed on all
+                          containers in the pod.
+                        items:
+                          type: string
+                        type: array
+                      podName:
+                        description: This field is required
+                        type: string
+                    required:
+                    - podName
+                    type: object
+                  type: array
+                podContainerSelector:
+                  description: PodContainerSelector is for hook controller to find
+                    pods and containers based on the pod label selector and container
+                    names If PodContainerNamesList is specified, this field will not
+                    be used.
+                  properties:
+                    containerList:
+                      description: If specified, controller will only select these
+                        containers from the selected pods based on PodSelector. Otherwise,
+                        all containers of the selected pods will be chosen for hook
+                        execution.
+                      items:
+                        type: string
+                      type: array
+                    podSelector:
+                      description: PodSelector specifies a label query over a set
+                        of pods. If not specified, all pods in the namespace will
+                        be slected to look for containers specified in the ContainerList.
+                      properties:
+                        matchExpressions:
+                          description: matchExpressions is a list of label selector
+                            requirements. The requirements are ANDed.
+                          items:
+                            description: A label selector requirement is a selector
+                              that contains values, a key, and an operator that relates
+                              the key and values.
+                            properties:
+                              key:
+                                description: key is the label key that the selector
+                                  applies to.
+                                type: string
+                              operator:
+                                description: operator represents a key's relationship
+                                  to a set of values. Valid operators are In, NotIn,
+                                  Exists and DoesNotExist.
+                                type: string
+                              values:
+                                description: values is an array of string values.
+                                  If the operator is In or NotIn, the values array
+                                  must be non-empty. If the operator is Exists or
+                                  DoesNotExist, the values array must be empty. This
+                                  array is replaced during a strategic merge patch.
+                                items:
+                                  type: string
+                                type: array
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          type: array
+                        matchLabels:
+                          additionalProperties:
+                            type: string
+                          description: matchLabels is a map of {key,value} pairs.
+                            A single {key,value} in the matchLabels map is equivalent
+                            to an element of matchExpressions, whose key field is
+                            "key", the operator is "In", and the values array contains
+                            only "value". The requirements are ANDed.
+                          type: object
+                      type: object
+                  type: object
+              type: object
+          required:
+          - actionName
+          - podSelection
+          type: object
+        status:
+          description: ExecutionHookStatus defines the observed state of ExecutionHook
+          properties:
+            hookStatuses:
+              description: This is a list of ContainerExecutionHookStatus, with each
+                status representing information about how hook is executed in a container,
+                including pod name, container name, Timestamp, Succeed, etc.
+              items:
+                description: ContainerExecutionHookStatus represents the current state
+                  of a hook for a specific container in a pod
+                properties:
+                  containerName:
+                    description: This field is required
+                    type: string
+                  error:
+                    description: The last error encountered when executing the action.
+                      The hook controller might update this field each time it retries
+                      the execution.
+                    properties:
+                      errorType:
+                        description: Type of the error This is required
+                        type: string
+                      message:
+                        description: Error message
+                        type: string
+                      reason:
+                        description: More detailed reason why error happens
+                        type: string
+                      timestamp:
+                        description: It indicates when the error occurred
+                        format: date-time
+                        type: string
+                    required:
+                    - errorType
+                    type: object
+                  podName:
+                    description: This field is required
+                    type: string
+                  succeed:
+                    description: Succeed is set to true when the action is executed
+                      in the container successfully. It will be set to false if the
+                      action cannot be executed successfully after ActionTimeoutSeconds
+                      passes.
+                    type: boolean
+                  timestamp:
+                    description: If not set, it is nil, indicating Action has not
+                      started If set, it means Action has started at the specified
+                      time
+                    format: date-time
+                    type: string
+                required:
+                - containerName
+                - podName
+                type: object
+              type: array
+          type: object
+      type: object
+  version: v1alpha1
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
